@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Monitoreo en Tiempo Real</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <!-- Tarjetas de datos -->
+    <div class="card">
+      <h2>Día: <span id="diaValor"><%= diaIncubacion %></span></h2>
+      <p>Temperatura: <span id="tempValor"><%= temperatura %></span>°C</p>
+      <p>Humedad: <span id="humValor"><%= humedad %></span>%</p>
+      <p>Nivel de agua: <span id="rangoAgua"></span></p>
+      <p>Foco: <span id="focoValor" class="<%= foco === 'ON' ? 'estado-on' : 'estado-off' %>"><%= foco %></span></p>
+      <p>Ventilador: <span id="ventiladorValor" class="<%= ventilador === 'ON' ? 'estado-on' : 'estado-off' %>"><%= ventilador %></span></p>
+    </div>
+
+    <!-- Gráficos -->
+    <div class="card">
+      <canvas id="temperaturaChart"></canvas>
+    </div>
+    <div class="card">
+      <canvas id="humedadChart"></canvas>
+    </div>
+    <div class="card">
+      <canvas id="distanciaChart"></canvas>
+    </div>
+  </div>
+
+  <script>
+    // Configuración inicial de gráficos
+    const chartConfig = (elementId, label, color) => ({
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: label,
+          data: [],
+          borderColor: color,
+          tension: 0.1,
+          fill: false
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: { display: true, title: { text: 'Tiempo', display: true }},
+          y: { display: true, title: { text: label, display: true }}
+        }
+      }
+    });
+
+    // Inicializar gráficos
+    const tempCtx = document.getElementById('temperaturaChart').getContext('2d');
+    const humCtx = document.getElementById('humedadChart').getContext('2d');
+    const distCtx = document.getElementById('distanciaChart').getContext('2d');
+
+    const temperaturaChart = new Chart(tempCtx, chartConfig('temperaturaChart', 'Temperatura (°C)', '#ff6384'));
+    const humedadChart = new Chart(humCtx, chartConfig('humedadChart', 'Humedad (%)', '#36a2eb'));
+    const distanciaChart = new Chart(distCtx, chartConfig('distanciaChart', 'Nivel de Agua (cm)', '#4bc0c0'));
+
+    // Actualización en tiempo real
+    const eventSource = new EventSource('/api/realtime');
+    eventSource.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      const now = new Date().toLocaleTimeString();
+
+      // Actualizar valores numéricos
+      if (data.temperatura) {
+        document.getElementById('tempValor').textContent = data.temperatura.toFixed(1);
+        updateChart(temperaturaChart, now, data.temperatura);
+      }
+      if (data.humedad) {
+        document.getElementById('humValor').textContent = data.humedad.toFixed(1);
+        updateChart(humedadChart, now, data.humedad);
+      }
+      if (data.distancia) {
+        updateRangoAgua(data.distancia);
+      }
+      if (data.foco) {
+        const element = document.getElementById('focoValor');
+        element.textContent = data.foco;
+        element.className = data.foco === 'ON' ? 'estado-on' : 'estado-off';
+      }
+      if (data.ventilador) {
+        const element = document.getElementById('ventiladorValor');
+        element.textContent = data.ventilador;
+        element.className = data.ventilador === 'ON' ? 'estado-on' : 'estado-off';
+      }
+      if (data.dia) document.getElementById('diaValor').textContent = data.dia;
+    };
+
+    // Función para actualizar gráficos
+    function updateChart(chart, label, data) {
+      if (chart.data.labels.length > 15) {
+        chart.data.labels.shift();
+        chart.data.datasets[0].data.shift();
+      }
+      chart.data.labels.push(label);
+      chart.data.datasets[0].data.push(data);
+      chart.update();
+    }
+
+    // Función para actualizar el rango del nivel de agua
+    function updateRangoAgua(distancia) {
+      const rangoElement = document.getElementById('rangoAgua');
+      if (distancia <= 10.863) {
+        rangoElement.textContent = 'Bajo';
+      } else if (distancia >= 12.597) {
+        rangoElement.textContent = 'Normal';
+      } else {
+        rangoElement.textContent = 'Medio';
+      }
+    }
+
+    // Cargar datos históricos iniciales
+    fetch('/api/historical')
+      .then(res => res.json())
+      .then(data => {
+        temperaturaChart.data.labels = data.timestamps;
+        temperaturaChart.data.datasets[0].data = data.temperaturas;
+        temperaturaChart.update();
+
+        humedadChart.data.labels = data.timestamps;
+        humedadChart.data.datasets[0].data = data.humedades;
+        humedadChart.update();
+
+        distanciaChart.data.labels = data.timestamps;
+        distanciaChart.data.datasets[0].data = data.distancias;
+        distanciaChart.update();
+      });
+  </script>
+</body>
+</html>
